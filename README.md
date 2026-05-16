@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/93823088-1e6f-43c7-99ac-513ffa75d83d" alt="Tater AI Assistant" width="300"/>
+  <img src="https://github.com/user-attachments/assets/0bc80db6-39c2-4834-842a-1bd32170866f" alt="Tater AI Assistant" width="300"/>
 </div>
 <h3 align="center">
   <a href="https://taterassistant.com">taterassistant.com</a>
