@@ -1,0 +1,35 @@
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TATER_OWW_HOST=0.0.0.0 \
+    TATER_OWW_PORT=8502 \
+    TATER_OWW_MODEL_DIR=/models \
+    TATER_OWW_DEVICE=gpu \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv ca-certificates curl libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+WORKDIR /app
+
+COPY requirements-nvidia.txt .
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -r requirements-nvidia.txt \
+    && python -m pip uninstall -y onnxruntime onnxruntime-gpu \
+    && python -m pip install --no-cache-dir "onnxruntime-gpu>=1.18,<2.0"
+
+COPY app ./app
+
+RUN mkdir -p /models
+
+EXPOSE 8502
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8502/healthz', timeout=3).read()"
+
+CMD ["python", "-m", "app.main"]

@@ -1,0 +1,20 @@
+services:
+  tater-oww-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tater-oww-server:cpu
+    container_name: tater-oww-server
+    restart: unless-stopped
+    ports:
+      - "8502:8502"
+    environment:
+      TATER_OWW_MODEL: hey_jarvis
+      TATER_OWW_FRAMEWORK: onnx
+      TATER_OWW_DEVICE: cpu
+      TATER_OWW_THRESHOLD: "0.50"
+      TATER_OWW_PATIENCE: "2"
+      TATER_OWW_DEBOUNCE_S: "2.0"
+      TATER_OWW_LOG_LEVEL: info
+    volumes:
+      - ./models:/models
