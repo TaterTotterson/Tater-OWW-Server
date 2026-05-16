@@ -1,3 +1,11 @@
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/93823088-1e6f-43c7-99ac-513ffa75d83d" alt="Tater AI Assistant" width="300"/>
+</div>
+<h3 align="center">
+  <a href="https://taterassistant.com">taterassistant.com</a>
+</h3>
+
+
 # Tater OWW Server
 
 Standalone HTTP openWakeWord server for Tater satellite firmware.
