@@ -79,16 +79,22 @@ Environment variables:
 | `TATER_OWW_MODEL` | `hey_jarvis` | Pretrained model name, local path, or HTTP(S) model URL. |
 | `TATER_OWW_FRAMEWORK` | `onnx` | `onnx` or `tflite`. |
 | `TATER_OWW_DEVICE` | `auto` | `auto`, `cpu`, or `gpu`. |
-| `TATER_OWW_THRESHOLD` | `0.50` | Detection threshold. |
+| `TATER_OWW_THRESHOLD` | `0.70` | Detection threshold. |
 | `TATER_OWW_PATIENCE` | `2` | Consecutive threshold hits required. |
-| `TATER_OWW_DEBOUNCE_S` | `2.0` | Minimum seconds between detections per satellite. |
+| `TATER_OWW_DEBOUNCE_S` | `4.0` | Minimum seconds between detections per satellite. |
 | `TATER_OWW_VAD_THRESHOLD` | `0.0` | Optional openWakeWord internal VAD threshold. |
 | `TATER_OWW_MODEL_DIR` | `/models` | Directory for downloaded/custom model files. |
 | `TATER_OWW_IDLE_TTL_S` | `3600` | Seconds before unused device detectors are unloaded. |
 | `TATER_OWW_MAX_CHUNK_BYTES` | `524288` | Max request body size. |
 | `TATER_OWW_PREFER_HINT` | `true` | Return `X-Wake-Word` as the response wake word when provided. |
+| `TATER_OWW_RESET_ON_DETECT` | `true` | Reset model state after an accepted wake. |
 | `TATER_OWW_WARMUP` | `true` | Load one detector at startup. |
 | `TATER_OWW_LOG_LEVEL` | `info` | Uvicorn/app log level. |
+
+For a custom trained model, place the `.onnx` or `.tflite` under `./models`
+and set `TATER_OWW_MODEL` to the container path, for example
+`/models/hey_tater.onnx`. The server also accepts HTTP(S) model URLs and
+prebuilt openWakeWord names such as `hey_jarvis`.
 
 ## Endpoints
 

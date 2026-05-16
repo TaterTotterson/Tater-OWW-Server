@@ -13,9 +13,9 @@ services:
       TATER_OWW_MODEL: hey_jarvis
       TATER_OWW_FRAMEWORK: onnx
       TATER_OWW_DEVICE: gpu
-      TATER_OWW_THRESHOLD: "0.50"
+      TATER_OWW_THRESHOLD: "0.70"
       TATER_OWW_PATIENCE: "2"
-      TATER_OWW_DEBOUNCE_S: "2.0"
+      TATER_OWW_DEBOUNCE_S: "4.0"
       TATER_OWW_LOG_LEVEL: info
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility

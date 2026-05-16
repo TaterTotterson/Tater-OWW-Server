@@ -3,17 +3,19 @@ from __future__ import annotations
 import audioop
 import contextlib
 import logging
+import shutil
 import threading
 import time
 from pathlib import Path
 from typing import Any
 from urllib import request as urllib_request
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from .config import Settings
 
 
 logger = logging.getLogger("tater_oww")
+_MODEL_SUFFIXES = {".onnx", ".tflite"}
 
 
 def _text(value: Any) -> str:
@@ -21,24 +23,40 @@ def _text(value: Any) -> str:
 
 
 def _safe_filename(value: Any, *, fallback: str = "openwakeword.onnx") -> str:
-    token = Path(_text(value).split("?", 1)[0]).name.strip()
+    token = Path(unquote(_text(value).split("?", 1)[0])).name.strip()
     if not token:
         return fallback
     clean = "".join(ch for ch in token if ch.isalnum() or ch in {".", "-", "_"}).strip("._")
     return clean or fallback
 
 
-def _download_model(url: str, model_dir: Path, framework: str) -> Path:
-    model_dir.mkdir(parents=True, exist_ok=True)
-    suffix = f".{framework}"
-    filename = _safe_filename(url, fallback=f"openwakeword{suffix}")
-    if not filename.lower().endswith(suffix):
-        filename = f"{filename}{suffix}"
-    target = model_dir / filename
+def _slug(value: Any) -> str:
+    token = _text(value).lower().replace("-", "_").replace(" ", "_")
+    return "_".join(part for part in token.split("_") if part)
+
+
+def _framework_from_source(source: Any, framework: str = "") -> str:
+    suffix = Path(_text(source).split("?", 1)[0]).suffix.lower().lstrip(".")
+    if suffix in {"onnx", "tflite"}:
+        return suffix
+    framework_token = _text(framework).lower()
+    return framework_token if framework_token in {"onnx", "tflite"} else ""
+
+
+def _looks_like_model_path(value: Any) -> bool:
+    token = _text(value)
+    if not token:
+        return False
+    suffix = Path(token.split("?", 1)[0]).suffix.lower()
+    return suffix in _MODEL_SUFFIXES or "/" in token or "\\" in token
+
+
+def _download_file(url: str, target: Path, *, timeout: float = 120.0) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists() and target.stat().st_size > 0:
         return target
     logger.info("downloading openWakeWord model url=%s target=%s", url, target)
-    with urllib_request.urlopen(url, timeout=60) as response:
+    with urllib_request.urlopen(url, timeout=timeout) as response:
         payload = response.read()
     if not payload:
         raise RuntimeError(f"model download returned no data: {url}")
@@ -48,16 +66,124 @@ def _download_model(url: str, model_dir: Path, framework: str) -> Path:
     return target
 
 
-def _pretrained_model_path(openwakeword_mod: Any, model_source: str, framework: str) -> Path:
+def _download_model(url: str, model_dir: Path, framework: str) -> Path:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    suffix = f".{framework}"
+    filename = _safe_filename(url, fallback=f"openwakeword{suffix}")
+    if not filename.lower().endswith(suffix):
+        filename = f"{filename}{suffix}"
+    return _download_file(url, model_dir / "custom" / filename)
+
+
+def _resource_url_for_framework(url: str, framework: str) -> str:
+    token = _text(url)
+    if framework == "onnx":
+        return token.replace(".tflite", ".onnx")
+    return token.replace(".onnx", ".tflite")
+
+
+def _resource_path_for_framework(path: str, framework: str) -> str:
+    token = _text(path)
+    if framework == "onnx":
+        return token.replace(".tflite", ".onnx")
+    return token.replace(".onnx", ".tflite")
+
+
+def _local_model_matches(filename: str, settings: Settings, *, framework: str = "") -> list[Path]:
+    name = _text(filename)
+    if not name or not settings.model_dir.exists():
+        return []
+    framework_token = _framework_from_source(name, framework)
+    matches: list[Path] = []
+    for path in sorted(settings.model_dir.rglob(name)):
+        if not path.is_file() or path.suffix.lower() not in _MODEL_SUFFIXES:
+            continue
+        if framework_token and path.suffix.lower().lstrip(".") != framework_token:
+            continue
+        matches.append(path)
+    return matches
+
+
+def _model_dir_alias(path_value: Any, settings: Settings) -> Path | None:
+    token = _text(path_value)
+    if not token:
+        return None
+    parts = Path(token).parts
+    markers = [
+        ("models",),
+        ("agent_lab", "models", "openwakeword"),
+    ]
+    for marker in markers:
+        for idx in range(0, max(0, len(parts) - len(marker) + 1)):
+            if tuple(parts[idx : idx + len(marker)]) != marker:
+                continue
+            tail = parts[idx + len(marker) :]
+            if not tail:
+                continue
+            candidate = settings.model_dir.joinpath(*tail)
+            if candidate.exists() and candidate.is_file():
+                return candidate
+    return None
+
+
+def _copy_external_model_to_dir(path: Path, settings: Settings) -> Path:
+    if not path.exists() or not path.is_file():
+        raise RuntimeError(f"openWakeWord model path is not accessible: {path}")
+    if path.suffix.lower() not in _MODEL_SUFFIXES:
+        raise ValueError("openWakeWord model path must end in .onnx or .tflite")
+    with contextlib.suppress(Exception):
+        path.relative_to(settings.model_dir)
+        return path
+    target = settings.model_dir / "custom" / (_slug(path.stem) or "custom") / path.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists() or target.stat().st_size != path.stat().st_size:
+        shutil.copy2(path, target)
+    return target
+
+
+def _normalize_model_path(source: str, settings: Settings) -> Path:
+    framework = _framework_from_source(source, settings.framework)
+    candidate = Path(source).expanduser()
+    if candidate.exists() and candidate.is_file():
+        return _copy_external_model_to_dir(candidate, settings)
+
+    alias = _model_dir_alias(source, settings)
+    if alias is not None:
+        return alias
+
+    matches = _local_model_matches(Path(source).name, settings, framework=framework)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        labels = ", ".join(str(path) for path in matches[:3])
+        raise RuntimeError(f"multiple local openWakeWord models match {Path(source).name}: {labels}")
+    raise RuntimeError(
+        "openWakeWord model path is not accessible. "
+        "Mount the model under TATER_OWW_MODEL_DIR or use a prebuilt model name/HTTP URL."
+    )
+
+
+def _pretrained_model_path(openwakeword_mod: Any, model_source: str, settings: Settings) -> Path:
+    framework = settings.framework
+    model_key = _slug(model_source)
     models = getattr(openwakeword_mod, "MODELS", {}) or {}
-    entry = models.get(model_source)
+    if model_key not in models and model_source == "current_weather":
+        model_key = "weather"
+    entry = models.get(model_key)
     if isinstance(entry, dict):
+        url = _resource_url_for_framework(_text(entry.get("download_url")), framework)
+        source_path = Path(_resource_path_for_framework(_text(entry.get("model_path")), framework))
+        if url and source_path.name:
+            return _download_file(url, settings.model_dir / "pretrained" / source_path.name)
         value = entry.get(framework) or entry.get(framework.upper()) or entry.get("model")
     else:
         value = entry
     if not value:
         available = ", ".join(sorted(str(key) for key in models.keys())[:30])
         raise RuntimeError(f"unknown openWakeWord model '{model_source}'. Available examples: {available}")
+    parsed = urlparse(_text(value))
+    if parsed.scheme in {"http", "https"}:
+        return _download_model(_text(value), settings.model_dir, framework)
     path = Path(str(value)).expanduser()
     if not path.exists():
         with contextlib.suppress(Exception):
@@ -68,10 +194,15 @@ def _pretrained_model_path(openwakeword_mod: Any, model_source: str, framework: 
     return path
 
 
-def _feature_model_path(openwakeword_mod: Any, key: str, framework: str) -> Path:
+def _feature_model_path(openwakeword_mod: Any, key: str, settings: Settings) -> Path:
+    framework = settings.framework
     features = getattr(openwakeword_mod, "FEATURE_MODELS", {}) or {}
     entry = features.get(key)
     if isinstance(entry, dict):
+        url = _resource_url_for_framework(_text(entry.get("download_url")), framework)
+        source_path = Path(_resource_path_for_framework(_text(entry.get("model_path")), framework))
+        if url and source_path.name:
+            return _download_file(url, settings.model_dir / "features" / source_path.name)
         value = entry.get(framework) or entry.get(framework.upper()) or entry.get("model")
     else:
         value = entry
@@ -92,10 +223,9 @@ def _resolve_model_path(openwakeword_mod: Any, settings: Settings) -> Path:
     parsed = urlparse(source)
     if parsed.scheme in {"http", "https"}:
         return _download_model(source, settings.model_dir, settings.framework)
-    path = Path(source).expanduser()
-    if path.exists():
-        return path
-    return _pretrained_model_path(openwakeword_mod, source, settings.framework)
+    if _looks_like_model_path(source):
+        return _normalize_model_path(source, settings)
+    return _pretrained_model_path(openwakeword_mod, source, settings)
 
 
 def _requested_device(settings: Settings) -> str:
@@ -134,8 +264,8 @@ class DetectorState:
         from openwakeword.model import Model
 
         model_path = _resolve_model_path(openwakeword, settings)
-        melspec_path = _feature_model_path(openwakeword, "melspectrogram", settings.framework)
-        embedding_path = _feature_model_path(openwakeword, "embedding", settings.framework)
+        melspec_path = _feature_model_path(openwakeword, "melspectrogram", settings)
+        embedding_path = _feature_model_path(openwakeword, "embedding", settings)
         device = _requested_device(settings)
 
         self.model = Model(
@@ -168,6 +298,7 @@ class OpenWakeWordEngine:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._detectors: dict[str, DetectorState] = {}
+        self._warm_detector: DetectorState | None = None
         self._lock = threading.Lock()
         self._last_cleanup_ts = 0.0
         self._cuda_fallback_until_ts = 0.0
@@ -175,11 +306,17 @@ class OpenWakeWordEngine:
         self._last_error = ""
 
     def warmup(self) -> None:
-        self._ensure_detector("__warmup__")
+        with self._lock:
+            if self._warm_detector is not None:
+                return
+        detector = self._ensure_detector("__warmup__")
+        with self._lock:
+            self._warm_detector = detector
 
     def reset(self) -> None:
         with self._lock:
             self._detectors.clear()
+            self._warm_detector = None
             self._last_error = ""
 
     def status(self) -> dict[str, Any]:
@@ -210,6 +347,7 @@ class OpenWakeWordEngine:
                     "prefer_hint": self.settings.prefer_hint,
                 },
                 "detector_count": len(detectors),
+                "warm_detector_loaded": self._warm_detector is not None,
                 "detectors": detectors,
                 "cuda_fallback_active": time.time() < self._cuda_fallback_until_ts,
                 "cuda_fallback_reason": self._cuda_fallback_reason,
@@ -255,6 +393,24 @@ class OpenWakeWordEngine:
             if detector is not None:
                 detector.last_seen_ts = time.time()
                 return detector
+            if self._warm_detector is not None and not token.startswith("__"):
+                detector = self._warm_detector
+                for warm_key, warm_detector in list(self._detectors.items()):
+                    if warm_detector is detector:
+                        self._detectors.pop(warm_key, None)
+                detector.selector = token
+                detector.reset()
+                detector.last_seen_ts = time.time()
+                self._detectors[token] = detector
+                self._warm_detector = None
+                logger.info(
+                    "assigned warm openWakeWord detector selector=%s model=%s framework=%s device=%s",
+                    token,
+                    detector.model_source,
+                    detector.framework,
+                    detector.device,
+                )
+                return detector
         try:
             detector = self._new_detector(token)
         except Exception as exc:
@@ -284,14 +440,28 @@ class OpenWakeWordEngine:
         width = int(audio_format.get("width") or 2)
         channels = int(audio_format.get("channels") or 1)
 
+        if width not in {1, 2, 3, 4}:
+            return b""
         if width != 2:
-            data = audioop.lin2lin(data, width, 2)
-            width = 2
-        if channels > 1:
-            data = audioop.tomono(data, width, 0.5, 0.5)
+            with contextlib.suppress(Exception):
+                data = audioop.lin2lin(data, width, 2)
+                width = 2
+        if width != 2:
+            return b""
+        if channels <= 0:
             channels = 1
+        if channels > 1:
+            with contextlib.suppress(Exception):
+                data = audioop.tomono(data, width, 0.5, 0.5)
+                channels = 1
+        if channels != 1:
+            return b""
         if rate != 16000:
-            data, detector.ratecv_state = audioop.ratecv(data, width, channels, rate, 16000, detector.ratecv_state)
+            with contextlib.suppress(Exception):
+                data, detector.ratecv_state = audioop.ratecv(data, width, channels, rate, 16000, detector.ratecv_state)
+                rate = 16000
+        if rate != 16000:
+            return b""
         return data
 
     def process_audio(

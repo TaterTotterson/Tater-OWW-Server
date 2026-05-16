@@ -74,9 +74,13 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    model_source = _text(os.getenv("TATER_OWW_MODEL") or "hey_jarvis")
     framework = _text(os.getenv("TATER_OWW_FRAMEWORK") or "onnx").lower()
     if framework not in {"onnx", "tflite"}:
         framework = "onnx"
+    source_framework = Path(model_source.split("?", 1)[0]).suffix.lower().lstrip(".")
+    if source_framework in {"onnx", "tflite"}:
+        framework = source_framework
 
     device = _text(os.getenv("TATER_OWW_DEVICE") or "auto").lower()
     if device not in {"auto", "cpu", "gpu", "cuda"}:
@@ -84,17 +88,15 @@ def load_settings() -> Settings:
     if device == "cuda":
         device = "gpu"
 
-    model_source = _text(os.getenv("TATER_OWW_MODEL") or "hey_jarvis")
-
     return Settings(
         host=_text(os.getenv("TATER_OWW_HOST") or "0.0.0.0"),
         port=_int_env("TATER_OWW_PORT", 8502, minimum=1, maximum=65535),
         model_source=model_source,
         framework=framework,
         device=device,
-        threshold=_float_env("TATER_OWW_THRESHOLD", 0.50, minimum=0.01, maximum=0.99),
+        threshold=_float_env("TATER_OWW_THRESHOLD", 0.70, minimum=0.01, maximum=0.99),
         patience=_int_env("TATER_OWW_PATIENCE", 2, minimum=1, maximum=10),
-        debounce_s=_float_env("TATER_OWW_DEBOUNCE_S", 2.0, minimum=0.0, maximum=30.0),
+        debounce_s=_float_env("TATER_OWW_DEBOUNCE_S", 4.0, minimum=0.0, maximum=30.0),
         vad_threshold=_float_env("TATER_OWW_VAD_THRESHOLD", 0.0, minimum=0.0, maximum=0.99),
         model_dir=Path(_text(os.getenv("TATER_OWW_MODEL_DIR") or "/models")).expanduser(),
         idle_ttl_s=_float_env("TATER_OWW_IDLE_TTL_S", 3600.0, minimum=60.0, maximum=86400.0),
