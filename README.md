@@ -87,8 +87,8 @@ Environment variables:
 | `TATER_OWW_FRAMEWORK` | `onnx` | `onnx` or `tflite`. |
 | `TATER_OWW_DEVICE` | `auto` | `auto`, `cpu`, or `gpu`. |
 | `TATER_OWW_THRESHOLD` | `0.95` | Detection threshold. |
-| `TATER_OWW_PATIENCE` | `4` | Consecutive threshold hits required. |
-| `TATER_OWW_DEBOUNCE_S` | `8.0` | Minimum seconds between detections per satellite. |
+| `TATER_OWW_PATIENCE` | `2` | Consecutive threshold hits required. |
+| `TATER_OWW_DEBOUNCE_S` | `4.0` | Minimum seconds between detections per satellite. |
 | `TATER_OWW_VAD_THRESHOLD` | `0.0` | Optional openWakeWord internal VAD threshold. |
 | `TATER_OWW_MODEL_DIR` | `/models` | Directory for downloaded/custom model files. |
 | `TATER_OWW_IDLE_TTL_S` | `3600` | Seconds before unused device detectors are unloaded. |
