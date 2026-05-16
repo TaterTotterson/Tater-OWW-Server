@@ -9,17 +9,16 @@
 
 # Tater OWW Server
 
-Standalone HTTP openWakeWord server for Tater satellite firmware.
+Standalone openWakeWord server for Tater satellite firmware.
 
-This service implements the same endpoint that the Tater firmware expects:
+This service implements the remote wake stream that the Tater firmware expects:
 
 ```text
-POST /api/openwakeword/detect
+WS   /api/openwakeword/stream
 ```
 
-Satellites post raw PCM chunks to this endpoint. When a wake word is detected,
-the server returns JSON that tells the device to start its normal ESPHome voice
-assistant flow.
+Satellites keep one WebSocket connection open and send raw PCM frames until the
+server reports a wake word.
 
 ## Quick Start
 
@@ -38,24 +37,21 @@ docker compose -f docker-compose.nvidia.yml up --build
 Then set the satellite firmware value:
 
 ```text
-openwakeword_server_url: http://YOUR_SERVER_IP:8502
+openwakeword_server_url: ws://YOUR_SERVER_IP:8502
 ```
 
-The firmware automatically posts to `/api/openwakeword/detect`.
+The firmware automatically streams to `/api/openwakeword/stream`. `http://`
+and `https://` values are accepted in the firmware UI, but the device converts
+them to `ws://` or `wss://` and still uses the stream.
 
 ## Firmware Contract
 
-Request:
+Preferred stream:
 
 ```text
-POST /api/openwakeword/detect
-Content-Type: application/octet-stream
-X-Audio-Format: pcm_s16le
-X-Audio-Rate: 16000
-X-Audio-Bits: 16
-X-Audio-Channels: 1
-X-Source-Device: kitchen-satellite
-X-Wake-Word: hey_tater
+WS /api/openwakeword/stream?selector=kitchen-satellite&wake_word=hey_tater&rate=16000&bits=16&channels=1
+Binary frames: pcm_s16le audio
+Text responses: JSON
 ```
 
 Response when no wake word is detected:
@@ -110,7 +106,7 @@ prebuilt openWakeWord names such as `hey_jarvis`.
 ```text
 GET  /healthz
 GET  /api/openwakeword/status
-POST /api/openwakeword/detect
+WS   /api/openwakeword/stream
 POST /api/openwakeword/reset
 ```
 
@@ -119,6 +115,6 @@ restarting the container.
 
 ## Notes
 
-This is an HTTP adapter, not a Wyoming server. It is meant for the Tater
-satellite firmware `remote_wake_word` component. The firmware can still fall
-back to microWakeWord if this server becomes unavailable.
+This is a Tater remote wake server, not a Wyoming server. It is meant for the
+Tater satellite firmware `remote_wake_word` component. The firmware can still
+fall back to microWakeWord if this server becomes unavailable.
