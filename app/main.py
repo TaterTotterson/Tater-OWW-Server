@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import time
 from typing import Any
 
 import uvicorn
@@ -20,6 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger("tater_oww")
 engine = OpenWakeWordEngine(settings)
 app = FastAPI(title="Tater OWW Server", version=__version__)
+STREAM_QUEUE_MAX = 4
 
 
 def _query_int(websocket: WebSocket, name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -92,23 +95,56 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
     }
     await websocket.accept()
     frame_count = 0
+    processed_count = 0
+    dropped_count = 0
+    audio_queue: asyncio.Queue[tuple[float, bytes]] = asyncio.Queue(maxsize=STREAM_QUEUE_MAX)
+    receiver_done = asyncio.Event()
+    receiver_task: asyncio.Task[None] | None = None
     logger.info("openWakeWord stream started selector=%s client=%s", selector, client_host or "-")
+
+    def drop_queued_frame() -> None:
+        nonlocal dropped_count
+        try:
+            audio_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return
+        dropped_count += 1
+
+    async def receive_audio_frames() -> None:
+        nonlocal frame_count
+        try:
+            while True:
+                message = await websocket.receive()
+                if str(message.get("type") or "") == "websocket.disconnect":
+                    break
+                audio_bytes = message.get("bytes")
+                if audio_bytes is None:
+                    continue
+                frame_count += 1
+                if not audio_bytes:
+                    continue
+                if len(audio_bytes) > settings.max_chunk_bytes:
+                    await websocket.send_json({"ok": False, "error": "openWakeWord audio chunk is too large"})
+                    await websocket.close(code=1009)
+                    break
+                while audio_queue.full():
+                    drop_queued_frame()
+                audio_queue.put_nowait((time.time(), bytes(audio_bytes)))
+        except WebSocketDisconnect:
+            pass
+        finally:
+            receiver_done.set()
+
     try:
+        receiver_task = asyncio.create_task(receive_audio_frames())
         while True:
-            message = await websocket.receive()
-            if str(message.get("type") or "") == "websocket.disconnect":
+            if receiver_done.is_set() and audio_queue.empty():
                 break
-            audio_bytes = message.get("bytes")
-            if audio_bytes is None:
+            try:
+                _received_ts, audio_bytes = await asyncio.wait_for(audio_queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
                 continue
-            frame_count += 1
-            if not audio_bytes:
-                await websocket.send_json({"ok": True, "detected": False})
-                continue
-            if len(audio_bytes) > settings.max_chunk_bytes:
-                await websocket.send_json({"ok": False, "error": "openWakeWord audio chunk is too large"})
-                await websocket.close(code=1009)
-                return
+            processed_count += 1
 
             try:
                 result = await asyncio.to_thread(
@@ -125,7 +161,6 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
                 continue
 
             if not bool(result.get("detected")):
-                await websocket.send_json({"ok": True, "detected": False})
                 continue
             await websocket.send_json(
                 {
@@ -138,10 +173,22 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
                     "model_label": str(result.get("model_label") or ""),
                 }
             )
+            while not audio_queue.empty():
+                drop_queued_frame()
     except WebSocketDisconnect:
         pass
     finally:
-        logger.info("openWakeWord stream stopped selector=%s frames=%s", selector, frame_count)
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            if receiver_task is not None:
+                receiver_task.cancel()
+                await receiver_task
+        logger.info(
+            "openWakeWord stream stopped selector=%s frames=%s processed=%s dropped=%s",
+            selector,
+            frame_count,
+            processed_count,
+            dropped_count,
+        )
 
 
 def main() -> None:

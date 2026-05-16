@@ -19,6 +19,8 @@ WS   /api/openwakeword/stream
 
 Satellites keep one WebSocket connection open and send raw PCM frames until the
 server reports a wake word.
+The server keeps only a small real-time queue per satellite and drops stale
+queued audio under load so wake detection does not lag behind live audio.
 
 ## Quick Start
 
