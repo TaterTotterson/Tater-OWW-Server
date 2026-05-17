@@ -55,6 +55,7 @@ class Settings:
     prefer_hint: bool
     reset_on_detect: bool
     warmup: bool
+    diagnostic_logging: bool
     log_level: str
 
     @property
@@ -105,5 +106,6 @@ def load_settings() -> Settings:
         prefer_hint=_bool_env("TATER_OWW_PREFER_HINT", True),
         reset_on_detect=_bool_env("TATER_OWW_RESET_ON_DETECT", True),
         warmup=_bool_env("TATER_OWW_WARMUP", True),
+        diagnostic_logging=_bool_env("TATER_OWW_DIAGNOSTIC_LOGGING", False),
         log_level=_text(os.getenv("TATER_OWW_LOG_LEVEL") or "info").lower(),
     )

@@ -23,6 +23,8 @@ logger = logging.getLogger("tater_oww")
 engine = OpenWakeWordEngine(settings)
 app = FastAPI(title="Tater OWW Server", version=__version__)
 STREAM_QUEUE_MAX = 4
+DETECT_LOG_EVERY = 120
+DETECT_SLOW_LOG_S = 1.0
 
 
 def _query_int(websocket: WebSocket, name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -32,6 +34,14 @@ def _query_int(websocket: WebSocket, name: str, default: int, *, minimum: int, m
     except Exception:
         parsed = int(default)
     return max(int(minimum), min(int(maximum), parsed))
+
+
+def _detector_selector(selector: str, client_host: str) -> str:
+    selector_token = str(selector or "").strip() or "remote"
+    client_token = str(client_host or "").strip()
+    if client_token and client_token != selector_token:
+        return f"{selector_token}@{client_token}"
+    return selector_token
 
 
 @app.on_event("startup")
@@ -86,6 +96,7 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
         or client_host
         or "remote"
     ).strip()
+    detector_selector = _detector_selector(selector, client_host)
     wake_word_hint = str(websocket.query_params.get("wake_word") or "").strip()
     audio_bits = _query_int(websocket, "bits", 16, minimum=8, maximum=32)
     audio_format = {
@@ -100,7 +111,12 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
     audio_queue: asyncio.Queue[tuple[float, bytes]] = asyncio.Queue(maxsize=STREAM_QUEUE_MAX)
     receiver_done = asyncio.Event()
     receiver_task: asyncio.Task[None] | None = None
-    logger.info("openWakeWord stream started selector=%s client=%s", selector, client_host or "-")
+    logger.info(
+        "openWakeWord stream started selector=%s detector=%s client=%s",
+        selector,
+        detector_selector,
+        client_host or "-",
+    )
 
     def drop_queued_frame() -> None:
         nonlocal dropped_count
@@ -141,26 +157,88 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
             if receiver_done.is_set() and audio_queue.empty():
                 break
             try:
-                _received_ts, audio_bytes = await asyncio.wait_for(audio_queue.get(), timeout=0.5)
+                received_ts, audio_bytes = await asyncio.wait_for(audio_queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
+            started_ts = time.time()
+            audio_bytes_len = len(audio_bytes or b"")
             processed_count += 1
+            queue_delay_ms = max(0.0, (started_ts - received_ts) * 1000.0)
 
             try:
                 result = await asyncio.to_thread(
                     engine.process_audio,
-                    selector=selector,
+                    selector=detector_selector,
                     audio_bytes=bytes(audio_bytes),
                     audio_format=audio_format,
                     wake_word_hint=wake_word_hint,
                 )
             except Exception as exc:
                 detail = str(exc) or "openWakeWord detection is unavailable"
-                logger.warning("openWakeWord stream detection failed selector=%s error=%s", selector, detail)
+                logger.warning("openWakeWord stream detection failed selector=%s error=%s", detector_selector, detail)
                 await websocket.send_json({"ok": False, "error": detail})
                 continue
 
             if not bool(result.get("detected")):
+                elapsed_s = time.time() - started_ts
+                try:
+                    score = float(result.get("score") or 0.0)
+                except Exception:
+                    score = 0.0
+                try:
+                    threshold = float(result.get("threshold") or settings.threshold)
+                except Exception:
+                    threshold = float(settings.threshold)
+                try:
+                    hit_count = int(result.get("hit_count") or 0)
+                except Exception:
+                    hit_count = 0
+                try:
+                    patience = int(result.get("patience") or settings.patience)
+                except Exception:
+                    patience = int(settings.patience)
+                force_log = bool(settings.diagnostic_logging) and (
+                    (threshold > 0.0 and score >= max(0.2, threshold - 0.25)) or hit_count > 0
+                )
+                should_log = (
+                    bool(settings.diagnostic_logging) and (
+                        force_log
+                        or processed_count == 1
+                        or processed_count % DETECT_LOG_EVERY == 0
+                    )
+                    or elapsed_s >= DETECT_SLOW_LOG_S
+                )
+                if should_log:
+                    if settings.diagnostic_logging:
+                        logger.info(
+                            (
+                                "openWakeWord detect selector=%s detected=False elapsed_ms=%.1f "
+                                "bytes=%s count=%s dropped=%s queue_ms=%.1f best_label=%s "
+                                "score=%.3f hits=%s/%s threshold=%.3f model=%s"
+                            ),
+                            detector_selector,
+                            elapsed_s * 1000.0,
+                            audio_bytes_len,
+                            processed_count,
+                            dropped_count,
+                            queue_delay_ms,
+                            str(result.get("best_label") or "-"),
+                            score,
+                            hit_count,
+                            patience,
+                            threshold,
+                            str(result.get("model_source") or settings.model_source or "-"),
+                        )
+                    else:
+                        logger.info(
+                            "openWakeWord detect selector=%s detected=False elapsed_ms=%.1f bytes=%s count=%s dropped=%s queue_ms=%.1f",
+                            detector_selector,
+                            elapsed_s * 1000.0,
+                            audio_bytes_len,
+                            processed_count,
+                            dropped_count,
+                            queue_delay_ms,
+                        )
                 continue
             await websocket.send_json(
                 {
@@ -184,7 +262,7 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
                 await receiver_task
         logger.info(
             "openWakeWord stream stopped selector=%s frames=%s processed=%s dropped=%s",
-            selector,
+            detector_selector,
             frame_count,
             processed_count,
             dropped_count,

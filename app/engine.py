@@ -513,6 +513,10 @@ class OpenWakeWordEngine:
                     "detected": False,
                     "score": best_score,
                     "best_label": best_label,
+                    "threshold": self.settings.threshold,
+                    "patience": self.settings.patience,
+                    "hit_count": int(detector.counts.get(best_label, 0)),
+                    "model_source": detector.model_source,
                 }
 
             detector.last_detection_ts = now_ts

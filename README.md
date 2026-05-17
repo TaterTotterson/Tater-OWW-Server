@@ -96,6 +96,7 @@ Environment variables:
 | `TATER_OWW_PREFER_HINT` | `true` | Return `X-Wake-Word` as the response wake word when provided. |
 | `TATER_OWW_RESET_ON_DETECT` | `true` | Reset model state after an accepted wake. |
 | `TATER_OWW_WARMUP` | `true` | Load one detector at startup. |
+| `TATER_OWW_DIAGNOSTIC_LOGGING` | `false` | Log best-label, score, threshold, and hit-count details for tuning. |
 | `TATER_OWW_LOG_LEVEL` | `info` | Uvicorn/app log level. |
 
 For a custom trained model, place the `.onnx` or `.tflite` under `./models`
