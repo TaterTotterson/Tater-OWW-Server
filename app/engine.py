@@ -344,6 +344,8 @@ class OpenWakeWordEngine:
                     "patience": self.settings.patience,
                     "debounce_s": self.settings.debounce_s,
                     "vad_threshold": self.settings.vad_threshold,
+                    "stream_queue_max": self.settings.stream_queue_max,
+                    "drop_queued_frames": self.settings.drop_queued_frames,
                     "prefer_hint": self.settings.prefer_hint,
                 },
                 "detector_count": len(detectors),

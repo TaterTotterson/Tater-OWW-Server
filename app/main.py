@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger("tater_oww")
 engine = OpenWakeWordEngine(settings)
 app = FastAPI(title="Tater OWW Server", version=__version__)
-STREAM_QUEUE_MAX = 4
+STREAM_QUEUE_MAX = 12
 DETECT_LOG_EVERY = 120
 DETECT_SLOW_LOG_S = 1.0
 
@@ -108,23 +108,27 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
     frame_count = 0
     processed_count = 0
     dropped_count = 0
-    audio_queue: asyncio.Queue[tuple[float, bytes]] = asyncio.Queue(maxsize=STREAM_QUEUE_MAX)
+    stream_queue_max = max(1, min(120, int(settings.stream_queue_max or STREAM_QUEUE_MAX)))
+    audio_queue: asyncio.Queue[tuple[float, bytes]] = asyncio.Queue(maxsize=stream_queue_max)
     receiver_done = asyncio.Event()
     receiver_task: asyncio.Task[None] | None = None
     logger.info(
-        "openWakeWord stream started selector=%s detector=%s client=%s",
+        "openWakeWord stream started selector=%s detector=%s client=%s queue_max=%s drop_queued_frames=%s",
         selector,
         detector_selector,
         client_host or "-",
+        stream_queue_max,
+        settings.drop_queued_frames,
     )
 
-    def drop_queued_frame() -> None:
+    def drop_queued_frame(*, count_drop: bool = True) -> None:
         nonlocal dropped_count
         try:
             audio_queue.get_nowait()
         except asyncio.QueueEmpty:
             return
-        dropped_count += 1
+        if count_drop:
+            dropped_count += 1
 
     async def receive_audio_frames() -> None:
         nonlocal frame_count
@@ -143,9 +147,12 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
                     await websocket.send_json({"ok": False, "error": "openWakeWord audio chunk is too large"})
                     await websocket.close(code=1009)
                     break
-                while audio_queue.full():
-                    drop_queued_frame()
-                audio_queue.put_nowait((time.time(), bytes(audio_bytes)))
+                if settings.drop_queued_frames:
+                    while audio_queue.full():
+                        drop_queued_frame()
+                    audio_queue.put_nowait((time.time(), bytes(audio_bytes)))
+                else:
+                    await audio_queue.put((time.time(), bytes(audio_bytes)))
         except WebSocketDisconnect:
             pass
         finally:
@@ -252,7 +259,7 @@ async def stream_openwakeword(websocket: WebSocket) -> None:
                 }
             )
             while not audio_queue.empty():
-                drop_queued_frame()
+                drop_queued_frame(count_drop=False)
     except WebSocketDisconnect:
         pass
     finally:

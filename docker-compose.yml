@@ -12,10 +12,12 @@ services:
       TATER_OWW_MODEL: hey_jarvis
       TATER_OWW_FRAMEWORK: onnx
       TATER_OWW_DEVICE: cpu
-      TATER_OWW_THRESHOLD: "0.95"
-      TATER_OWW_PATIENCE: "2"
-      TATER_OWW_DEBOUNCE_S: "4.0"
-      TATER_OWW_DIAGNOSTIC_LOGGING: "false"
+      TATER_OWW_THRESHOLD: "0.5"
+      TATER_OWW_PATIENCE: "1"
+      TATER_OWW_DEBOUNCE_S: "2.0"
+      TATER_OWW_STREAM_QUEUE_MAX: "12"
+      TATER_OWW_DROP_QUEUED_FRAMES: "true"
+      TATER_OWW_DIAGNOSTIC_LOGGING: "true"
       TATER_OWW_LOG_LEVEL: info
     volumes:
       - ./models:/models

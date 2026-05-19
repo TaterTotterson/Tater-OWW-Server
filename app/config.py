@@ -52,6 +52,8 @@ class Settings:
     idle_ttl_s: float
     cleanup_interval_s: float
     max_chunk_bytes: int
+    stream_queue_max: int
+    drop_queued_frames: bool
     prefer_hint: bool
     reset_on_detect: bool
     warmup: bool
@@ -69,6 +71,8 @@ class Settings:
                 str(self.patience),
                 f"{self.debounce_s:.3f}",
                 f"{self.vad_threshold:.3f}",
+                str(self.stream_queue_max),
+                str(self.drop_queued_frames),
                 str(self.prefer_hint),
             ]
         )
@@ -95,17 +99,19 @@ def load_settings() -> Settings:
         model_source=model_source,
         framework=framework,
         device=device,
-        threshold=_float_env("TATER_OWW_THRESHOLD", 0.95, minimum=0.01, maximum=0.99),
-        patience=_int_env("TATER_OWW_PATIENCE", 2, minimum=1, maximum=10),
-        debounce_s=_float_env("TATER_OWW_DEBOUNCE_S", 4.0, minimum=0.0, maximum=30.0),
+        threshold=_float_env("TATER_OWW_THRESHOLD", 0.5, minimum=0.01, maximum=0.99),
+        patience=_int_env("TATER_OWW_PATIENCE", 1, minimum=1, maximum=10),
+        debounce_s=_float_env("TATER_OWW_DEBOUNCE_S", 2.0, minimum=0.0, maximum=30.0),
         vad_threshold=_float_env("TATER_OWW_VAD_THRESHOLD", 0.0, minimum=0.0, maximum=0.99),
         model_dir=Path(_text(os.getenv("TATER_OWW_MODEL_DIR") or "/models")).expanduser(),
         idle_ttl_s=_float_env("TATER_OWW_IDLE_TTL_S", 3600.0, minimum=60.0, maximum=86400.0),
         cleanup_interval_s=_float_env("TATER_OWW_CLEANUP_INTERVAL_S", 60.0, minimum=10.0, maximum=3600.0),
         max_chunk_bytes=_int_env("TATER_OWW_MAX_CHUNK_BYTES", 512 * 1024, minimum=1024, maximum=4 * 1024 * 1024),
+        stream_queue_max=_int_env("TATER_OWW_STREAM_QUEUE_MAX", 12, minimum=1, maximum=120),
+        drop_queued_frames=_bool_env("TATER_OWW_DROP_QUEUED_FRAMES", True),
         prefer_hint=_bool_env("TATER_OWW_PREFER_HINT", True),
         reset_on_detect=_bool_env("TATER_OWW_RESET_ON_DETECT", True),
         warmup=_bool_env("TATER_OWW_WARMUP", True),
-        diagnostic_logging=_bool_env("TATER_OWW_DIAGNOSTIC_LOGGING", False),
+        diagnostic_logging=_bool_env("TATER_OWW_DIAGNOSTIC_LOGGING", True),
         log_level=_text(os.getenv("TATER_OWW_LOG_LEVEL") or "info").lower(),
     )

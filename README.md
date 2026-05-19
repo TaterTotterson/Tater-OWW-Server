@@ -86,17 +86,19 @@ Environment variables:
 | `TATER_OWW_MODEL` | `hey_jarvis` | Pretrained model name, local path, or HTTP(S) model URL. |
 | `TATER_OWW_FRAMEWORK` | `onnx` | `onnx` or `tflite`. |
 | `TATER_OWW_DEVICE` | `auto` | `auto`, `cpu`, or `gpu`. |
-| `TATER_OWW_THRESHOLD` | `0.95` | Detection threshold. |
-| `TATER_OWW_PATIENCE` | `2` | Consecutive threshold hits required. |
-| `TATER_OWW_DEBOUNCE_S` | `4.0` | Minimum seconds between detections per satellite. |
+| `TATER_OWW_THRESHOLD` | `0.5` | Detection threshold. Matches the old Home Assistant openWakeWord default. |
+| `TATER_OWW_PATIENCE` | `1` | Consecutive threshold hits required. |
+| `TATER_OWW_DEBOUNCE_S` | `2.0` | Minimum seconds between detections per satellite. |
 | `TATER_OWW_VAD_THRESHOLD` | `0.0` | Optional openWakeWord internal VAD threshold. |
 | `TATER_OWW_MODEL_DIR` | `/models` | Directory for downloaded/custom model files. |
 | `TATER_OWW_IDLE_TTL_S` | `3600` | Seconds before unused device detectors are unloaded. |
 | `TATER_OWW_MAX_CHUNK_BYTES` | `524288` | Max request body size. |
+| `TATER_OWW_STREAM_QUEUE_MAX` | `12` | Max queued wake audio chunks per stream. Higher values reduce dropped frames but can add latency. |
+| `TATER_OWW_DROP_QUEUED_FRAMES` | `true` | Drop old queued frames if detection falls behind. Set to `false` to preserve every frame and backpressure the stream. |
 | `TATER_OWW_PREFER_HINT` | `true` | Return `X-Wake-Word` as the response wake word when provided. |
 | `TATER_OWW_RESET_ON_DETECT` | `true` | Reset model state after an accepted wake. |
 | `TATER_OWW_WARMUP` | `true` | Load one detector at startup. |
-| `TATER_OWW_DIAGNOSTIC_LOGGING` | `false` | Log best-label, score, threshold, and hit-count details for tuning. |
+| `TATER_OWW_DIAGNOSTIC_LOGGING` | `true` | Log best-label, score, threshold, and hit-count details for tuning. Set to `false` after tuning for quieter logs. |
 | `TATER_OWW_LOG_LEVEL` | `info` | Uvicorn/app log level. |
 
 For a custom trained model, place the `.onnx` or `.tflite` under `./models`
